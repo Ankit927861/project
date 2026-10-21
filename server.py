@@ -1,103 +1,153 @@
-from mcp.server.fastmcp import FastMCP
+import asyncio
 
-# StudyFlow - Alexa+ Hackathon Project
-# A student productivity assistant exposed through MCP.
+from mcp.server.mcpserver import MCPServer
 
-mcp = FastMCP(
-    "StudyFlow",
-    stateless_http=True,
-    json_response=True
+from database import (
+    add_task as db_add_task,
+    get_tasks,
+    complete_task,
 )
 
 
-@mcp.tool()
-def add_task(task: str, subject: str, deadline: str = "") -> str:
-    """
-    Add a study task for the student.
+app = MCPServer(
+    name="StudyFlow",
+    title="StudyFlow Student Assistant",
+    description=(
+        "An AI-powered student productivity assistant "
+        "for planning, learning, and task management."
+    ),
+    version="1.0.0",
+)
 
-    Args:
-        task: Name of the task.
-        subject: Subject the task belongs to.
-        deadline: Optional deadline.
-    """
+
+@app.tool()
+async def add_task(
+    task: str,
+    subject: str,
+    deadline: str = "",
+) -> str:
+    """Add a study task and save it permanently."""
+
+    task_id = db_add_task(
+        task=task,
+        subject=subject,
+        deadline=deadline,
+    )
+
     if deadline:
         return (
-            f"Task added successfully: '{task}' "
-            f"for {subject}. Deadline: {deadline}."
+            f"Task #{task_id} added successfully. "
+            f"'{task}' for {subject}. "
+            f"Deadline: {deadline}."
         )
 
-    return f"Task added successfully: '{task}' for {subject}."
+    return (
+        f"Task #{task_id} added successfully. "
+        f"'{task}' for {subject}."
+    )
 
 
-@mcp.tool()
-def create_study_plan(
+@app.tool()
+async def list_tasks() -> str:
+    """Show all saved study tasks."""
+
+    tasks = get_tasks()
+
+    if not tasks:
+        return "You currently have no study tasks."
+
+    lines = []
+
+    for item in tasks:
+        status = "Completed" if item["completed"] else "Pending"
+        deadline = item["deadline"] or "No deadline"
+
+        lines.append(
+            f"#{item['id']} | "
+            f"{item['task']} | "
+            f"{item['subject']} | "
+            f"{deadline} | "
+            f"{status}"
+        )
+
+    return "Your study tasks:\n" + "\n".join(lines)
+
+
+@app.tool()
+async def complete_study_task(task_id: int) -> str:
+    """Mark a study task as completed."""
+
+    success = complete_task(task_id)
+
+    if success:
+        return f"Task #{task_id} has been marked as completed."
+
+    return f"I couldn't find task #{task_id}."
+
+
+@app.tool()
+async def create_study_plan(
     subjects: str,
-    available_hours: float
+    available_hours: float,
 ) -> str:
-    """
-    Create a simple study plan.
-
-    Args:
-        subjects: Comma-separated list of subjects.
-        available_hours: Number of hours available.
-    """
+    """Create a simple study plan."""
 
     subject_list = [
-        subject.strip()
-        for subject in subjects.split(",")
-        if subject.strip()
+        item.strip()
+        for item in subjects.split(",")
+        if item.strip()
     ]
 
     if not subject_list:
         return "Please provide at least one subject."
 
+    if available_hours <= 0:
+        return "Available hours must be greater than zero."
+
     hours_per_subject = available_hours / len(subject_list)
 
-    plan = []
-
-    for subject in subject_list:
-        plan.append(
-            f"{subject}: {hours_per_subject:.1f} hours"
-        )
+    plan = [
+        f"- {subject}: {hours_per_subject:.1f} hours"
+        for subject in subject_list
+    ]
 
     return (
-        f"Study plan for {available_hours} available hours:\n"
+        f"Study plan for {available_hours} hours:\n"
         + "\n".join(plan)
     )
 
 
-@mcp.tool()
-def explain_topic(topic: str, level: str = "beginner") -> str:
-    """
-    Prepare a learning request for a topic.
-
-    Args:
-        topic: Topic the student wants to learn.
-        level: beginner, intermediate, or advanced.
-    """
+@app.tool()
+async def explain_topic(
+    topic: str,
+    level: str = "beginner",
+) -> str:
+    """Prepare a learning explanation request."""
 
     return (
-        f"StudyFlow received a request to explain '{topic}' "
-        f"at {level} level. "
-        "The student should receive a simple explanation, "
-        "examples, and a short practice question."
+        f"Explain '{topic}' at {level} level. "
+        "Start with the basic concept, give a simple example, "
+        "and finish with a short practice question."
     )
 
 
-@mcp.tool()
-def get_study_advice(subject: str) -> str:
-    """
-    Give basic study advice for a subject.
-    """
+@app.tool()
+async def get_study_advice(subject: str) -> str:
+    """Give basic study advice."""
 
     return (
         f"For {subject}, start with the fundamentals, "
-        "study one concept at a time, solve a few examples, "
+        "study one concept at a time, solve examples, "
         "and finish with a short self-test."
     )
 
 
-if __name__ == "__main__":
-    mcp.run(
-        transport="streamable-http"
+async def main():
+    await app.run_streamable_http_async(
+        host="127.0.0.1",
+        port=8000,
     )
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
